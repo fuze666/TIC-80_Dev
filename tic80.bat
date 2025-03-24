@@ -1,0 +1,1 @@
+.\tic80.exe --fs .\assets --skip
