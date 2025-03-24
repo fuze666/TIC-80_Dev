@@ -1,0 +1,1 @@
+@doskey tic80=.\tic80.exe --fs .\assets --skip
