@@ -98,37 +98,70 @@ lasers={
  draw=function() for _,v in ipairs(lasers.list) do rect(v.x,v.y,v.w,v.h,11) end end
 }
 
-enemy_states={
- [1]={
-  idle={
-   anime={0,32},
-   update=function(self)
-    self.t=self.t+1
-    self.x=(self.x+1)%256
-    self.y=sin(self.t/50*pi)*10
-    self.sp=min(self.sp+1,100)
-    if self.t%128==0 then self:statechange("attack") end
-   end
-  },
-  attack={
-   anime={2,34},
-   init=function(self)
-    local psp=self.sp
-    self.sp=self.sp-10
-    if self.sp<0 then self.sp=psp;self:statechange("idle") else
-     sfx(1,"G-3",15)
-     bullets.add(self.x+8,self.y+12,1,10,120,136)
+enemies={
+  list={},
+  update=function(self)
+   for i=#self.list,1,-1 do
+    local enemy=self.list[i]
+    enemy:update()
+    if enemy.remove then
+     table.remove(self.list,i)
+    else
+     for j=#lasers.list,1,-1 do
+      if collide(lasers.list[j],enemy) and enemy.state~="damage" then
+       enemy:statechange("damage")
+       table.remove(lasers.list,j)
+       break
+      end
+     end
     end
-   end,
-   update=function(self)
-    self.t=self.t+1
-    self.y=sin(self.t/50*pi)*10
-    if (self.t-30)%120==0 then self:statechange("idle") end
    end
-  },
-  damage={anime={4},update=function(self) self.t=self.t+1 end}
- }
+  end
 }
+
+enemy_states={
+  [1]={
+   idle={
+    anime={0,32},
+    update=function(self)
+     self.t=self.t+1
+     self.x=(self.x+1)%256
+     self.y=sin(self.t/50*pi)*10
+     self.sp=min(self.sp+1,100)
+     if self.t%128==0 then self:statechange("attack") end
+    end
+   },
+   attack={
+    anime={2,34},
+    init=function(self)
+     local psp=self.sp
+     self.sp=self.sp-10
+     if self.sp<0 then self.sp=psp;self:statechange("idle") else
+      sfx(1,"G-3",15)
+      bullets.add(self.x+8,self.y+12,1,10,120,136)
+     end
+    end,
+    update=function(self)
+     self.t=self.t+1
+     self.y=sin(self.t/50*pi)*10
+     if (self.t-30)%120==0 then self:statechange("idle") end
+    end
+   },
+   damage={
+    anime={4}, -- Damage animation
+    init=function(self)
+     self.dmg_timer=0 -- Initialize damage timer
+    end,
+    update=function(self)
+     self.t=self.t+1
+     self.dmg_timer=self.dmg_timer+1
+     if self.dmg_timer>30 then -- After 30 frames, remove enemy
+      self.remove=true
+     end
+    end
+   }
+  }
+ }
 
 e={
  new=function(self,x,y,w,h,type)
@@ -147,6 +180,8 @@ e={
   self.animet=0
  end
 }
+
+
 
 status={[1]={sp=100,hp=100}}
 
@@ -224,44 +259,7 @@ words={
 }
 
 stages={
- attack1={
-  init=function() enemies={};atkt=0;for i=1,4 do table.insert(enemies,e:new(120+20*i,30,16,16,1)) end end,
-  update=function()
-   for i=#enemies,1,-1 do
-    local enemy=enemies[i]
-    enemy:update()
-    for j=#lasers.list,1,-1 do
-     if collide(lasers.list[j],enemy) then
-      table.remove(enemies,i)
-      table.remove(lasers.list,j)
-      break
-     end
-    end
-   end
-   lasers.update();bullets.update()
-   if #enemies==0 and #lasers.list==0 then set_stage("story1") end
-   if btnp(6) then set_stage("story1") end
-  end,
-  draw=function()
-   for _,v in ipairs(enemies) do animate(v);spr(v.animef,v.x,v.y,0,1,0,0,2,2) end
-   bullets.draw();lasers.draw();print(p.hp)
-  end
- },
- attack2={
-  init=function() enemies={};atkt=0;for i=1,5 do table.insert(enemies,e:new(100+25*i,40,16,16,1)) end end,
-  update=function() stages.attack1.update() end,
-  draw=function() stages.attack1.draw() end
- },
- attack3={
-  init=function() enemies={};atkt=0;for i=1,6 do table.insert(enemies,e:new(90+20*i,50,16,16,1)) end end,
-  update=function() stages.attack1.update() end,
-  draw=function() stages.attack1.draw() end
- },
- attack4={
-  init=function() enemies={};atkt=0;for i=1,7 do table.insert(enemies,e:new(80+20*i,60,16,16,1)) end end,
-  update=function() stages.attack1.update() end,
-  draw=function() stages.attack1.draw() end
- },
+ 
  story1={
   init=function() textbox:changetext(1);textbox.hide=false;section=7 end,
   update=function()
@@ -272,18 +270,21 @@ stages={
   end,
   draw=function() textbox:draw() end
  },
+ attack1={
+  init=function() enemies.list={};atkt=0;for i=1,4 do table.insert(enemies.list,e:new(120+20*i,30,16,16,1)) end end,
+  update=function()
+   enemies:update()
+   lasers.update();bullets.update()
+   if #enemies.list==0 and #lasers.list==0 then set_stage("story1") end
+   if btnp(6) then set_stage("story1") end
+  end,
+  draw=function()
+   for _,v in ipairs(enemies.list) do animate(v);spr(v.animef,v.x,v.y,0,1,0,0,2,2) end
+   bullets.draw();lasers.draw();print(p.hp)
+  end
+ },
  story2={
   init=function() textbox:changetext(8);textbox.hide=false;section=10 end,
-  update=function() stages.story1.update() end,
-  draw=function() stages.story1.draw() end
- },
- story3={
-  init=function() textbox:changetext(11);textbox.hide=false;section=13 end,
-  update=function() stages.story1.update() end,
-  draw=function() stages.story1.draw() end
- },
- story4={
-  init=function() textbox:changetext(14);textbox.hide=false;section=16 end,
   update=function() stages.story1.update() end,
   draw=function() stages.story1.draw() end
  },
@@ -312,6 +313,16 @@ stages={
   end,
   draw=function() words.draw();bullets.draw();lasers.draw() end
  },
+ story3={
+  init=function() textbox:changetext(11);textbox.hide=false;section=13 end,
+  update=function() stages.story1.update() end,
+  draw=function() stages.story1.draw() end
+ },
+ attack2={
+  init=function() enemies={};atkt=0;for i=1,5 do table.insert(enemies,e:new(100+25*i,40,16,16,1)) end end,
+  update=function() stages.attack1.update() end,
+  draw=function() stages.attack1.draw() end
+ },
  hacking2={
   init=function()
    hackingt=0;words.list={}
@@ -320,6 +331,16 @@ stages={
   end,
   update=function() stages.hacking1.update() end,
   draw=function() stages.hacking1.draw() end
+ },
+ story4={
+  init=function() textbox:changetext(14);textbox.hide=false;section=16 end,
+  update=function() stages.story1.update() end,
+  draw=function() stages.story1.draw() end
+ },
+ attack3={
+  init=function() enemies={};atkt=0;for i=1,6 do table.insert(enemies,e:new(90+20*i,50,16,16,1)) end end,
+  update=function() stages.attack1.update() end,
+  draw=function() stages.attack1.draw() end
  },
  hacking3={
   init=function()
@@ -330,14 +351,10 @@ stages={
   update=function() stages.hacking1.update() end,
   draw=function() stages.hacking1.draw() end
  },
- hacking4={
-  init=function()
-   hackingt=0;words.list={}
-   for i=1,5 do words.add(60*i,50+6*i,4,"dummy",2);words.add(20*i,50+6*i,4,"noise",1) end
-   words.add(90,50,4,"answer",1.5)
-  end,
-  update=function() stages.hacking1.update() end,
-  draw=function() stages.hacking1.draw() end
+ story4={
+  init=function() textbox:changetext(14);textbox.hide=false;section=16 end,
+  update=function() stages.story1.update() end,
+  draw=function() stages.story1.draw() end
  }
 }
 
