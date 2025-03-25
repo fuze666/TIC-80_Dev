@@ -20,6 +20,9 @@ function set_game_state(state)
  elseif state=="game" then
   update=game_update
   draw=game_draw
+ elseif state=="gameover" then
+  update=gameover_update
+  draw=gameover_draw
  end
 end
 
@@ -29,40 +32,49 @@ player_states={
   anime={256,258,260,258},
   update=function(self)
    if self.hit then
-    self:damage(self.hit)
+    self:statechange("damage")
    end
+   if btnp(2) then p.l=max(p.l-1,1) end
+   if btnp(3) then p.l=min(p.l+1,#l) end
   end
  },
  attack={
   anime={262,264},
   init=function(self)
+   atkt=0
+   lasers.add(self.x,self.y,1)
   end,
   update=function(self)
+  atkt=atkt+1
+  if atkt>30 then self:statechange("idle") end
   end
  },
  damage={
   anime={266,268},
   init=function(self)
+   dmgt=0
+   self.hp=self.hp-self.hit
+   self.hit=nil
+   if self.hp<=0 then gameover_init() end
   end,
   update=function(self)
+  dmgt=dmgt+1
+  if dmgt>30 then self:statechange("idle") end
+  if btnp(2) then p.l=max(p.l-1,1) end
+  if btnp(3) then p.l=min(p.l+1,#l) end
   end
  }
 }
 
 -- Player object
 p={
- l=1,
+ l=3,
  x=0,
  y=90,
  hp=100,
  hit=nil,
  gethitbox=function(self)
   return{x=self.x-2,y=self.y+2,w=4,h=12}
- end,
- damage=function(self,hit)
-  self.hp=self.hp-hit
-  self:statechange("damage")
-  self.hit=nil
  end,
  statechange=function(self,state)
   self.state=state
@@ -75,16 +87,42 @@ p={
  end
 }
 
+-- lasers system
+lasers={
+ list={},
+ add=function(x,y,d)
+  local new={x=x,y=y,w=1,h=5,d=d}
+  table.insert(lasers.list,new)
+ end,
+ update=function()
+  for i=#lasers.list,1,-1 do
+   local v=lasers.list[i]
+   v.y=v.y-1
+   if v.y<0 then
+    table.remove(lasers.list,i)
+   end
+  end
+ end,
+ draw=function()
+  for _,v in ipairs(lasers.list) do
+   rect(v.x,v.y,v.w,v.h,11)
+  end
+ end
+}
+
 -- Define enemy states
 enemy_states={
  [1]={
   idle={
    anime={0,32},
+   init=function()
+   end,
    update=function(self)
     self.t=self.t+1
-    self.x=self.x+cos(self.t/60*pi)
-    self.sp=min(self.sp+0.1,100)
-    if self.t%120==0 then
+    self.x=(self.x+1)%256
+    self.y=sin(self.t/50*pi)*10
+    self.sp=min(self.sp+1,100)
+    if self.t%128==0 then
      self:statechange("attack")
     end
    end
@@ -93,17 +131,19 @@ enemy_states={
    anime={2,34},
    init=function(self)
     local psp=self.sp
-    self.sp=self.sp-50
+    self.sp=self.sp-10
     if self.sp<0 then
      self.sp=psp
+     self:statechange("idle")
     else
      sfx(1,"G-3",15)
-     bullets.add(self.x,self.y,1,10,120,136)
+     bullets.add(self.x+8,self.y+12,1,10,120,136)
     end
    end,
    update=function(self)
     self.t=self.t+1
-    if self.t%180==0 then
+    self.y=sin(self.t/50*pi)*10
+    if (self.t-30)%120==0 then
      self:statechange("idle")
     end
    end
@@ -174,24 +214,37 @@ bullets={
 
 -- Define stages
 stages={
-  -- Attack stages
-  attack1={
-   init=function()
-    enemies={}
-    for i=1,4 do
-     table.insert(enemies,e:new(120+20*i,30,16,16,1))
-    end
-   end,
+-- Attack stages
+attack1={
+init=function()
+ enemies={}
+ atkt=0
+ for i=1,4 do
+  table.insert(enemies,e:new(120+20*i,30,16,16,1))
+ end
+end,
    update=function()
-    for _,enemy in ipairs(enemies) do
-     enemy.x=(enemy.x-1)%240 -- Move left
-     if btnp(6) then set_stage("story1") end
+    for i,enemy in ipairs(enemies) do
+     enemy:update()
+     for j,laser in ipairs(lasers.list) do
+      if collide(laser,enemy) then
+       table.remove(enemies,i)
+       table.remove(lasers.list,j)
+      end
+     end
     end
+    bullets.update()
+    -- trigger
+    if #enemies==0 then set_stage("story1") end
+    if btnp(6) then set_stage("story1") end
    end,
    draw=function()
-    for _,enemy in ipairs(enemies) do
-     
+    for i,v in ipairs(enemies) do
+     animate(v)
+     spr(v.animef,v.x,v.y,0,1,0,0,2,2)
     end
+    bullets.draw()
+    print(p.hp)
    end
   },
   attack2={
@@ -204,8 +257,8 @@ stages={
    update=function()
     for _,enemy in ipairs(enemies) do
      enemy.y=enemy.y+1 -- Move down
-     if btnp(6) then set_stage("story2") end
     end
+    if btnp(6) then set_stage("story2") end
    end,
    draw=function()
     for _,enemy in ipairs(enemies) do
@@ -217,6 +270,7 @@ stages={
    init=function()
     story_text="The beginning..."
     text_pos=0
+    storyt=0
    end,
    update=function()
     if btnp(6) then set_stage("hacking1") end
@@ -227,6 +281,7 @@ stages={
   },
   story2={
    init=function()
+    storyt=0
     story_text="The journey continues..."
     text_pos=0
    end,
@@ -258,35 +313,33 @@ stages={
     print("Hacking: ",40,60,14) -- Draw text (cyan)
    end
   }
-  }
+}
   
-  -- Manage current stage
-  current_stage=nil
-  
-  -- Switch stage
-  function set_stage(stage_name)
-   if stages[stage_name] then
-    current_stage=stages[stage_name]
-    if current_stage.init then
-     current_stage.init()
-    end
-   else
-    trace("Stage not found: "..stage_name)
-   end
-  end
+-- Manage current stage
+current_stage=nil
+
+-- Switch stage
+function set_stage(stage_name)
+ if stages[stage_name] then
+  current_stage=stages[stage_name]
+  if current_stage.init then current_stage.init() end
+ else
+  trace("Stage not found: "..stage_name)
+ end
+end
 
 -- Define lanes
 l={{80},{96},{112},{128},{144},{160}}
-gamet=0
 
 -- Game update
 function game_update()
- if btnp(2) then p.l=max(p.l-1,1) end
- if btnp(3) then p.l=min(p.l+1,#l) end
+ if btnp(4) then p:statechange("attack") end
  if current_stage and current_stage.update then
   current_stage.update()
  end
+ lasers.update()
  p:update()
+ gamet=gamet+1
 end
 
 -- Game draw
@@ -302,11 +355,7 @@ function game_draw()
  p.x=l[p.l][1]
  animate(p)
  spr(p.animef,p.x-8,p.y,0,1,0,0,2,2)
- for i,v in ipairs(enemies) do
-  animate(v)
-  spr(v.animef,v.x,v.y,0,1,0,0,2,2)
- end
- gamet=gamet+1
+ lasers.draw()
 end
 
 -- Utility functions
@@ -358,7 +407,31 @@ end
 
 -- Start game
 function game_init()
+ gamet=0
+ p.l=3
+ p.x=0
+ p.y=90
+ p.hp=40
+ p.hit=nil
  set_game_state("game")
  p:statechange("idle")
- set_stage("attack1")
+ if current_stage then
+ else 
+  set_stage("attack1")
+ end
+end
+
+--Game over
+
+function gameover_init()
+ set_game_state("gameover")
+end
+
+function gameover_update()
+ if btnp(4) then game_init() end
+end
+
+function gameover_draw()
+ cls(0)
+ print("gameover")
 end
